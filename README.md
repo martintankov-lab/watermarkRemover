@@ -1,8 +1,8 @@
 # Watermark Remover
 
-Batch tool that removes a watermark from every image in a folder. The watermark location is **hardcoded** in the script (rectangle measured against a 2800×2100 reference; auto-scaled to each image's real size), so you can run it on any folder without setup. Uses **LaMa** AI inpainting (a deep-learning model designed for filling masked regions) with a plain OpenCV fallback if LaMa is unavailable.
+Batch tool that removes a watermark from every image in a folder. You pick the watermark rectangle **once** (the first time you run it) and it's remembered for every future run — the rectangle is anchored to its nearest corner and scaled uniformly per image, so it works across **any image size and any aspect ratio**. Uses **LaMa** AI inpainting (a deep-learning model designed for filling masked regions), with a plain OpenCV fallback if LaMa is unavailable.
 
-> Current hardcoded watermark: `x=2606, y=1905, w=125, h=126` against a `2800×2100` reference (bottom-right corner). To change it permanently, edit `HARDCODED_COORDS` near the top of `scripts/remove_watermark.py`. To override per-run, use `--x / --y / --w / --h / --ref-w / --ref-h`, or re-pick interactively with `--reselect`.
+> Picked coordinates are persisted to `~/Library/Application Support/WatermarkRemover/watermark_coords.json` (macOS) or `~/.config/watermarkremover/watermark_coords.json` (Linux). To re-pick, run with `--reselect` or just delete that file.
 
 Repo layout:
 
@@ -10,11 +10,15 @@ Repo layout:
 watermarkRemover/
 ├── README.md
 ├── requirements.txt
-├── WatermarkRemover.app/       (macOS double-click launcher)
+├── WatermarkRemover.app/                       (macOS double-click launcher; self-contained)
+│   └── Contents/
+│       ├── MacOS/WatermarkRemover              (shell launcher that calls the bundled script)
+│       └── Resources/remove_watermark.py       (bundled copy — the .app is portable to any folder)
 └── scripts/
-    ├── remove_watermark.py     (the actual tool)
-    └── watermark_coords.json   (written by --reselect)
+    └── remove_watermark.py                     (canonical source of the tool)
 ```
+
+The `.app` bundle is fully self-contained — you can drag it to `/Applications`, your Desktop, or anywhere else and double-clicking will still work, as long as the Python dependencies are installed.
 
 ---
 
@@ -58,26 +62,26 @@ If `simple-lama-inpainting` fails to install or load, the script keeps working �
 
 ### Option A — double-click the macOS app
 
-Double-click `WatermarkRemover.app`. It opens Terminal and asks you to paste the path to your images folder.
+Double-click `WatermarkRemover.app`. It opens Terminal and asks you to paste the path to your images folder. On the **very first run** a picker window opens on the first image — drag a rectangle around the watermark and press `ENTER`. From then on, every future run just processes silently using that saved rectangle.
 
 ### Option B — run from the terminal
 
 ```bash
-# Interactive: it will prompt for the input folder
+# Interactive: it prompts for the input folder; auto-opens the picker on first run
 python3 scripts/remove_watermark.py
 
-# Or pass the folder directly — uses the hardcoded watermark region
+# Pass the folder directly
 python3 scripts/remove_watermark.py --input /path/to/images
 
 # Custom output folder (default is "<input>/removed watermark")
 python3 scripts/remove_watermark.py --input /path/to/images --output /path/to/out
 
-# Override the hardcoded rectangle for a one-off run
+# Force a re-pick (replaces the saved rectangle)
+python3 scripts/remove_watermark.py --input /path/to/images --reselect
+
+# Override the rectangle for a one-off run without saving
 python3 scripts/remove_watermark.py --input /path/to/images \
     --x 2606 --y 1905 --w 125 --h 126 --ref-w 2800 --ref-h 2100
-
-# Open the picker window to draw a new rectangle (also saves it to scripts/watermark_coords.json)
-python3 scripts/remove_watermark.py --input /path/to/images --reselect
 
 # Add more padding around the mask (default 4 px)
 python3 scripts/remove_watermark.py --input /path/to/images --padding 8
@@ -85,26 +89,28 @@ python3 scripts/remove_watermark.py --input /path/to/images --padding 8
 
 ### Flow
 
-1. The script scans the input folder for images (`.jpg`, `.jpeg`, `.png`, `.bmp`, `.tiff`, `.webp`).
-2. It uses the **hardcoded watermark rectangle** (or your `--x/--y/--w/--h` overrides) and scales it proportionally to each image's actual dimensions.
-3. Cleaned images are written to `<input>/removed watermark/` (or your `--output` folder) with the original filenames.
+1. Scans the input folder for images (`.jpg`, `.jpeg`, `.png`, `.bmp`, `.tiff`, `.webp`).
+2. Resolves the watermark rectangle in this order:
+   - explicit `--x/--y/--w/--h` overrides, **or**
+   - `--reselect` (opens the picker, saves the result), **or**
+   - the persisted saved rectangle from `~/Library/Application Support/WatermarkRemover/watermark_coords.json`, **or**
+   - the built-in `HARDCODED_COORDS` fallback. If none of the above and no saved rectangle exists yet, the picker opens automatically on first run.
+3. For each image, the rectangle is **anchored to the same image corner** it was picked closest to (top-left / top-right / bottom-left / bottom-right) and scaled by `min(image_w / ref_w, image_h / ref_h)`. Shape preserved, position consistent across any aspect ratio.
+4. Cleaned images are written to `<input>/removed watermark/` (or `--output`).
 
-### Changing the hardcoded rectangle
+### Changing the saved rectangle
 
-Two ways:
-
-- **Permanent:** edit `HARDCODED_COORDS` near the top of `scripts/remove_watermark.py`.
-- **Interactive pick:** run with `--reselect`. A window opens on the first image — drag a rectangle and press:
-  - `ENTER` — confirm
+- **Re-pick interactively:** run with `--reselect`. A window opens on the first image — drag, press:
+  - `ENTER` — confirm and save (overwrites the persisted file)
   - `R` — reset the rectangle
-  - `Q` / `ESC` — quit
-
-  The selection is written to `scripts/watermark_coords.json` (useful as a one-off override; to make it permanent, copy those values into `HARDCODED_COORDS`).
+  - `Q` / `ESC` — abort
+- **Reset to first-run state:** delete `~/Library/Application Support/WatermarkRemover/watermark_coords.json`. Next run will auto-open the picker.
+- **Change the built-in fallback:** edit `HARDCODED_COORDS` near the top of `scripts/remove_watermark.py`. (Only used if there is no saved file and no CLI overrides.)
 
 ## 4. Troubleshooting
 
 - **`Cannot open image: …`** — the file is corrupt or an unsupported format. Check the extension is in the list above.
-- **LaMa fails to load on startup** — the script prints nothing and silently switches to OpenCV inpainting. You'll see `[warn] LaMa not available, falling back to OpenCV inpainting` per image. Reinstall with `pip install --force-reinstall simple-lama-inpainting torch`.
+- **LaMa fails to load on startup** — the script silently switches to OpenCV inpainting. You'll see `[warn] LaMa not available, falling back to OpenCV inpainting` per image. Reinstall with `pip install --force-reinstall simple-lama-inpainting torch`.
 - **Mac asks "cannot be opened because the developer cannot be verified"** when launching `WatermarkRemover.app` — right-click the app → *Open* → confirm. Only needed once.
-- **Watermark position is wrong on some images** — the hardcoded rectangle was measured on a different layout. Run with `--reselect` on a representative image, or pass `--x/--y/--w/--h` directly. To make the new position permanent, update `HARDCODED_COORDS` in `scripts/remove_watermark.py`.
-- **GPU users:** `torch` will use CUDA / MPS automatically if available; nothing to configure.
+- **Watermark position is wrong on a new batch** — the saved rectangle was picked on an image whose layout doesn't match. Run with `--reselect` on a representative image to overwrite it.
+- **GPU users:** `torch` uses CUDA / MPS automatically if available; nothing to configure.

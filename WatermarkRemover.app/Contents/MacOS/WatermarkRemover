@@ -1,8 +1,8 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+SCRIPT="$(cd "$(dirname "$0")/../Resources" && pwd)/remove_watermark.py"
 osascript << EOF
 tell application "Terminal"
     activate
-    do script "cd '$SCRIPT_DIR' && python3 scripts/remove_watermark.py"
+    do script "python3 '$SCRIPT'"
 end tell
 EOF
