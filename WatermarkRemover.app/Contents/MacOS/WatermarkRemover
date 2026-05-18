@@ -1,0 +1,8 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+osascript << EOF
+tell application "Terminal"
+    activate
+    do script "cd '$SCRIPT_DIR' && python3 scripts/remove_watermark.py"
+end tell
+EOF
